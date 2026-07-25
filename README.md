@@ -59,16 +59,26 @@ both, and the glyphs stay rigid. A radial lens has no preferred side.
 Drag the hole anywhere on the page — it records your offset from its drift path
 and wanders on from where you let go. The panel sets mass (pixels per
 Schwarzschild radius), spin, inclination (face-on ring through to edge-on),
-the Einstein radius the type responds to, disk brightness, and drift speed.
+the Einstein radius the type responds to, disk brightness, drift speed and
+render resolution.
+
+The panel collapses to a small tab, and starts collapsed at 640px and below,
+where expanded it would cover a third of the viewport (36% down to 5%). Your
+choice sticks once you've made it.
 
 `Score` plays an original ambient piece, off by default.
 
 ## Performance
 
-The integrator is the expensive half — 160 adaptive steps per pixel. The field
-renders at a fraction of device resolution and the scale is tuned from measured
-frame time; the panel reports what it settled on. If it settles well under 100%,
-lower `Mass` or reduce the fbm octave count in the shader.
+The integrator is the expensive half — 112 adaptive steps per pixel, with a
+per-pixel step jitter so the fixed cadence does not alias into concentric rings.
+
+It renders at **full resolution by default**. If that is too slow on your
+hardware, drag `Res` down, or all the way to its lowest position for `auto`,
+which hands the scale to a tuner driven by measured frame time and reports what
+it settles on. The device pixel ratio is capped at 1.5, so "100%" means full CSS
+resolution rather than full retina — visually near-identical here for a soft
+render, at a little over half the cost.
 
 The glyph pass is cheap by comparison: measured at 2.9 ms/frame for ~1200
 lensed glyphs, and it does no style writes at all while the page is idle.

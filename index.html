@@ -124,19 +124,40 @@ h2::before{content:"";position:absolute;top:0;left:0;width:52px;height:1px;backg
 
 .hud{
   position:fixed;right:0;bottom:0;z-index:6;
-  display:flex;flex-direction:column;gap:10px;
-  padding:15px 17px;margin:0 clamp(10px,2vw,20px) clamp(10px,2vw,20px) 0;
+  margin:0 clamp(10px,2vw,20px) clamp(10px,2vw,20px) 0;
   background:color-mix(in srgb,var(--deep) 84%,transparent);
   border:1px solid var(--hair);backdrop-filter:blur(10px);
   font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);
 }
+.hudTab{
+  appearance:none;font:inherit;font-size:10px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-2);background:transparent;border:0;
+  width:100%;display:flex;align-items:center;gap:10px;cursor:pointer;
+  padding:11px 16px;text-align:left;
+}
+.hudTab .lbl{flex:1}
+.hudTab .tabfps{color:var(--ink-3);letter-spacing:.06em;font-weight:500;font-variant-numeric:tabular-nums}
+.hud[data-open="true"] .hudTab .tabfps{display:none}
+.hudTab .chev{
+  width:6px;height:6px;flex:none;
+  border-right:1.2px solid currentColor;border-bottom:1.2px solid currentColor;
+  transform:rotate(45deg);transition:transform .2s ease;
+}
+.hud[data-open="true"] .hudTab .chev{transform:rotate(-135deg)}
+.hudTab:hover{color:var(--ink)}
+.hudTab:focus-visible{outline:1px solid var(--amber);outline-offset:-3px}
+.hudBody{display:flex;flex-direction:column;gap:10px;padding:0 16px 14px}
+.hud[data-open="false"] .hudBody{display:none}
 .hud .row{display:grid;grid-template-columns:6.4em 100px 3.4em;align-items:center;gap:10px}
 .hud .val{color:var(--amber);font-variant-numeric:tabular-nums;text-align:right;letter-spacing:0;font-weight:500}
 .hud .hint{color:var(--ink-3);letter-spacing:.1em;margin-top:1px;font-weight:500}
 @media (max-width:640px){
-  .hud{left:0;right:0;margin:0;border-left:0;border-right:0;border-bottom:0}
+  /* open: a bottom sheet. closed: a small pill, so the page is unobstructed. */
+  .hud[data-open="true"]{left:0;right:0;margin:0;border-left:0;border-right:0;border-bottom:0}
+  .hud[data-open="false"]{left:auto;right:0;margin:0 12px 12px 0}
   .hud .row{grid-template-columns:5.6em 1fr 3.2em}
 }
+@media (prefers-reduced-motion:reduce){ .hudTab .chev{transition:none} }
 input[type=range]{appearance:none;width:100%;height:1px;background:var(--hair);margin:0;cursor:ew-resize}
 input[type=range]::-webkit-slider-thumb{appearance:none;width:11px;height:11px;border-radius:50%;background:var(--amber);border:0}
 input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--amber);border:0}
@@ -167,7 +188,7 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
       <p class="eyebrow">Ray-traced null geodesics</p>
       <h1 data-warp>A disk seen <em>over</em> the top of itself</h1>
       <p class="standfirst" data-warp>Turn an accretion disk edge-on and gravity lifts its far side into an arch above the shadow, and drops a second copy below. One flat ring, three images, no perspective trick involved.</p>
-      <p class="byline"><b>Shadow</b> √27 ⁄ 2 ≈ 2.598 r<sub>s</sub><br><b>Photon sphere</b> 1.5 r<sub>s</sub><br><b>Orbit</b> Ω ∝ r<sup>−3⁄2</sup><br><b>Integrator</b> 160 steps, adaptive</p>
+      <p class="byline"><b>Shadow</b> √27 ⁄ 2 ≈ 2.598 r<sub>s</sub><br><b>Photon sphere</b> 1.5 r<sub>s</sub><br><b>Orbit</b> Ω ∝ r<sup>−3⁄2</sup><br><b>Integrator</b> 112 steps, adaptive</p>
     </div>
 
     <div class="body">
@@ -214,15 +235,21 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
   </div>
 </div>
 
-<div class="hud" id="hud">
+<div class="hud" id="hud" data-open="true">
+  <button class="hudTab" id="hudTab" type="button" aria-expanded="true" aria-controls="hudBody">
+    <span class="lbl">Controls</span><span class="tabfps" id="tabFps"></span><span class="chev" aria-hidden="true"></span>
+  </button>
+  <div class="hudBody" id="hudBody">
   <div class="row"><label for="ms">Mass</label><input id="ms" type="range" min="12" max="46" step="1" value="26"><span class="val" id="msV">26</span></div>
   <div class="row"><label for="sp">Spin</label><input id="sp" type="range" min="10" max="320" step="5" value="100"><span class="val" id="spV">1.00</span></div>
   <div class="row"><label for="inc">Inclination</label><input id="inc" type="range" min="0" max="90" step="1" value="84"><span class="val" id="incV">84°</span></div>
   <div class="row"><label for="re">Lens</label><input id="re" type="range" min="60" max="280" step="1" value="118"><span class="val" id="reV">118</span></div>
   <div class="row"><label for="db">Disk</label><input id="db" type="range" min="0" max="160" step="1" value="88"><span class="val" id="dbV">0.88</span></div>
   <div class="row"><label for="dr">Drift</label><input id="dr" type="range" min="0" max="200" step="1" value="55"><span class="val" id="drV">0.55</span></div>
+  <div class="row"><label for="rz">Res</label><input id="rz" type="range" min="25" max="100" step="5" value="100"><span class="val" id="rzV">100%</span></div>
   <div class="row"><label for="snd">Score</label><button class="tog" id="snd" type="button" aria-pressed="false">Play</button><span class="val" id="sndV">off</span></div>
   <div class="hint" id="fpsV">—</div>
+  </div>
 </div>
 
 <script>
@@ -241,8 +268,9 @@ const S = {
   drift:0.55,        // rogue-hole wander speed
   ox:0, oy:0,        // reader's offset from the drift path
   baseX:0, baseY:0,  // where the drift path currently is
-  dpr: Math.min(devicePixelRatio || 1, 2),
-  rs: 0.7            // render scale, auto-tuned from frame time
+  dpr: Math.min(devicePixelRatio || 1, 1.5),
+  rs: 1.0,           // render scale; 1.0 = full, or auto-tuned from frame time
+  noAutoRes: true    // full res by default — the Res control re-enables auto
 };
 
 /* ══ analytic lens for the type ═══════════════════
@@ -347,7 +375,7 @@ float vn(vec2 p){
 }
 float fbm(vec2 p){
   float s = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++){ s += a*vn(p); p *= 2.03; a *= 0.5; }
+  for (int i = 0; i < 3; i++){ s += a*vn(p); p *= 2.03; a *= 0.5; }
   return s;
 }
 
@@ -425,14 +453,14 @@ void main(){
   // a fixed step cadence aliases into concentric rings; jitter breaks it into noise
   float jit = 0.86 + 0.28*h21(gl_FragCoord.xy);
 
-  for (int i = 0; i < 160; i++){
+  for (int i = 0; i < 112; i++){
     float r  = length(p);
     if (r < 1.0){ captured = true; break; }
-    if (r > 42.0 && dot(v, p) > 0.0) break;      // escaped, outbound
+    if (r > 32.0 && dot(v, p) > 0.0) break;      // escaped, outbound
 
     float r2 = r*r;
     vec3  ac = -1.5 * h2 * p / (r2*r2*r);        // Schwarzschild null geodesic
-    float dt = clamp(0.055*r, 0.020, 0.80) * jit;
+    float dt = clamp(0.078*r, 0.028, 1.05) * jit;
 
     vec3 prev = p;
     v += ac*dt;
@@ -592,6 +620,12 @@ function loop(ms){
     fpsNow = Math.round(frames*1000/(ms - fpsT));
     document.getElementById('fpsV').textContent =
       fpsNow + ' fps · ' + Math.round(S.rs*100) + '% res · ' + lastN + ' glyphs';
+    document.getElementById('tabFps').textContent = fpsNow + ' fps';
+    if (!S.noAutoRes){
+      const rz = document.getElementById('rz');
+      rz.value = Math.max(30, Math.round(S.rs*100/5)*5);
+      document.getElementById('rzV').textContent = Math.round(S.rs*100) + '% auto';
+    }
     frames = 0; fpsT = ms;
   }
   requestAnimationFrame(loop);
@@ -604,7 +638,7 @@ function relayout(){
   if (innerWidth === lastW && innerHeight === lastH) return;
   lastW = innerWidth; lastH = innerHeight;
   clearTimeout(rt);
-  rt = setTimeout(() => { place(); resizeGL(); measure(); syncFallback(); markDirty(); }, 140);
+  rt = setTimeout(() => { place(); resizeGL(); measure(); syncFallback(); markDirty(); hudDefault(); }, 140);
 }
 addEventListener('resize', relayout);
 addEventListener('orientationchange', relayout);
@@ -614,6 +648,9 @@ if (window.ResizeObserver) new ResizeObserver(relayout).observe(document.documen
 let dragging=false, gdx=0, gdy=0, hovering=false;
 function grabR(){ return Math.max(S.RE, S.scale*3.2); }
 addEventListener('pointerdown', e => {
+  // never start a drag from the panel: when the hole drifts behind it, the
+  // preventDefault below would otherwise swallow slider and button input
+  if (e.target.closest && e.target.closest('.hud')) return;
   if (Math.hypot(e.clientX-S.cx, e.clientY-S.cy) > grabR()) return;
   dragging = true; gdx = S.cx-e.clientX; gdy = S.cy-e.clientY;
   document.documentElement.classList.add('grabbing');
@@ -621,6 +658,10 @@ addEventListener('pointerdown', e => {
 }, { passive:false });
 addEventListener('pointermove', e => {
   if (!dragging){
+    if (e.target.closest && e.target.closest('.hud')){
+      if (hovering){ hovering = false; document.documentElement.style.cursor = ''; }
+      return;
+    }
     const near = Math.hypot(e.clientX-S.cx, e.clientY-S.cy) <= grabR();
     if (near !== hovering){ hovering = near; document.documentElement.style.cursor = near ? 'grab' : ''; }
     return;
@@ -648,6 +689,11 @@ bind('re',  (v,u) => { S.RE = v; if (u) S.userLens = true; },   v => String(v));
 bind('db',  v      => { S.disk = v/100; },                      v => (v/100).toFixed(2));
 bind('dr',  v      => { S.drift = v/100; },                     v => (v/100).toFixed(2));
 bind('sp',  v      => { S.spin = v/100; },                      v => (v/100).toFixed(2));
+// 25 means hand the scale back to the frame-time tuner
+bind('rz',  v => {
+  if (v <= 25){ S.noAutoRes = false; }
+  else { S.noAutoRes = true; S.rs = v/100; resizeGL(); }
+}, v => v <= 25 ? 'auto' : v + '%');
 
 /* ══ score ═══════════════════════════════════════
    Synthesised here, in full: additive organ partials, a filtered drone and a
@@ -756,6 +802,21 @@ const Score = (function(){
     get playing(){ return on; }
   };
 })();
+
+/* panel collapse — closed by default on small screens, where it would
+   otherwise cover a third of the viewport */
+const hudEl = document.getElementById('hud'), hudTab = document.getElementById('hudTab');
+let hudUserSet = false;
+function setHud(open){
+  hudEl.dataset.open = String(open);
+  hudTab.setAttribute('aria-expanded', String(open));
+}
+function hudDefault(){ if (!hudUserSet) setHud(innerWidth > 640); }
+hudTab.addEventListener('click', () => {
+  hudUserSet = true;
+  setHud(hudEl.dataset.open !== 'true');
+});
+hudDefault();
 
 const sndBtn = document.getElementById('snd'), sndOut = document.getElementById('sndV');
 sndBtn.addEventListener('click', () => {
