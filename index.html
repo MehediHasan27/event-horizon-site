@@ -246,6 +246,7 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
   <div class="row"><label for="re">Lens</label><input id="re" type="range" min="60" max="280" step="1" value="118"><span class="val" id="reV">118</span></div>
   <div class="row"><label for="db">Disk</label><input id="db" type="range" min="0" max="160" step="1" value="88"><span class="val" id="dbV">0.88</span></div>
   <div class="row"><label for="dr">Drift</label><input id="dr" type="range" min="0" max="200" step="1" value="55"><span class="val" id="drV">0.55</span></div>
+  <div class="row"><label for="ph">Physics</label><input id="ph" type="range" min="0" max="100" step="1" value="50"><span class="val" id="phV">0.50</span></div>
   <div class="row"><label for="rz">Res</label><input id="rz" type="range" min="25" max="100" step="5" value="25"><span class="val" id="rzV">auto</span></div>
   <div class="row"><label for="snd">Score</label><button class="tog" id="snd" type="button" aria-pressed="false">Play</button><span class="val" id="sndV">off</span></div>
   <div class="hint" id="fpsV">—</div>
@@ -263,6 +264,7 @@ const S = {
   incl:84,           // degrees from disk normal; 90 = edge-on
   RE:118,            // Einstein radius for the type, px
   disk:0.88,
+  phys:0.5,          // 0 = symmetric film look, 1 = full relativistic beaming
   spin:1.0,          // disk rotation multiplier
   spinT:0,           // integrated disk phase, so changing spin never jumps it
   drift:0.55,        // rogue-hole wander speed
@@ -364,6 +366,7 @@ uniform float uT;
 uniform float uScale;   // px per rs
 uniform float uIncl;    // radians from disk normal
 uniform float uDisk;
+uniform float uPhys;   // 0 = symmetric film look, 1 = full relativistic beaming
 
 const float R_IN  = 2.6;
 const float R_OUT = 17.0;
@@ -382,7 +385,7 @@ float fbm(vec2 p){
 // Disk emission at radius rd, azimuth ang.
 // The flow is Keplerian: angular speed goes as r^-3/2, so the inner
 // material laps the outer and the pattern shears rather than spinning rigidly.
-vec3 disk(float rd, float ang){
+vec3 disk(float rd, float ang, float shift){
   float t = clamp((rd - R_IN)/(R_OUT - R_IN), 0.0, 1.0);
 
   float omega = 15.0 * pow(rd, -1.5);
@@ -412,7 +415,10 @@ vec3 disk(float rd, float ang){
   vec3 c1 = vec3(1.00,0.90,0.58);                    // hot inner lip
   vec3 c2 = vec3(1.00,0.36,0.04);                    // orange
   vec3 c3 = vec3(0.50,0.045,0.008);                  // deep red outer
-  vec3 col = t < 0.42 ? mix(c1,c2, t/0.42) : mix(c2,c3, (t-0.42)/0.58);
+  // An approaching element is blueshifted, so it reads hotter: walk the ramp
+  // toward its white end. A receding one slides the other way, into deep red.
+  float tc = clamp(t / max(shift, 0.30), 0.0, 1.0);
+  vec3 col = tc < 0.42 ? mix(c1,c2, tc/0.42) : mix(c2,c3, (tc-0.42)/0.58);
   return col * lum * 2.6;
 }
 
@@ -480,8 +486,26 @@ void main(){
       float f  = prev.y/(prev.y - p.y);
       vec3  x  = mix(prev, p, f);
       float d2 = dot(x.xz, x.xz);
-      if (d2 > R_IN*R_IN && d2 < R_OUT*R_OUT)
-        acc += disk(sqrt(d2), atan(x.z, x.x)) * uDisk;
+      if (d2 > R_IN*R_IN && d2 < R_OUT*R_OUT){
+        float rd = sqrt(d2);
+
+        // Doppler factor for a Keplerian orbiter, plus the gravitational
+        // redshift climbing out of the well. Rays are traced backwards, so
+        // the direction from source to observer is -v.
+        vec3  nobs = normalize(-v);
+        vec3  tang = normalize(cross(vec3(0.0,1.0,0.0), x));
+        float beta = sqrt(0.5/rd);                       // v/c, M = rs/2
+        float gam  = inversesqrt(max(1.0 - beta*beta, 1e-3));
+        float dopp = 1.0 / max(gam*(1.0 - beta*dot(tang, nobs)), 1e-3);
+        float grav = sqrt(max(1.0 - 1.0/rd, 1e-3));
+        float shift = dopp * grav;
+
+        // beaming goes as the cube of the shift; dial it back to the
+        // symmetric look the film chose when uPhys is low
+        float boost = mix(1.0, clamp(shift*shift*shift, 0.05, 7.0), uPhys);
+        float sc    = mix(1.0, shift, uPhys);
+        acc += disk(rd, atan(x.z, x.x), sc) * uDisk * boost;
+      }
     }
   }
 
@@ -519,7 +543,7 @@ function initGL(){
   const loc = gl.getAttribLocation(prog,'p');
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-  for (const n of ['uRes','uC','uT','uScale','uIncl','uDisk']) U[n] = gl.getUniformLocation(prog,n);
+  for (const n of ['uRes','uC','uT','uScale','uIncl','uDisk','uPhys']) U[n] = gl.getUniformLocation(prog,n);
   return true;
 }
 let useGL = initGL();
@@ -549,6 +573,7 @@ function drawGL(t){
   gl.uniform1f(U.uScale, S.scale*q);
   gl.uniform1f(U.uIncl, S.incl*Math.PI/180);
   gl.uniform1f(U.uDisk, S.disk);
+  gl.uniform1f(U.uPhys, S.phys);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
@@ -699,6 +724,7 @@ bind('re',  (v,u) => { S.RE = v; if (u) S.userLens = true; },   v => String(v));
 bind('db',  v      => { S.disk = v/100; },                      v => (v/100).toFixed(2));
 bind('dr',  v      => { S.drift = v/100; },                     v => (v/100).toFixed(2));
 bind('sp',  v      => { S.spin = v/100; },                      v => (v/100).toFixed(2));
+bind('ph',  v      => { S.phys = v/100; },                      v => (v/100).toFixed(2));
 // 25 means hand the scale back to the frame-time tuner
 bind('rz',  v => {
   if (v <= 25){ S.noAutoRes = false; }

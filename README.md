@@ -59,14 +59,52 @@ both, and the glyphs stay rigid. A radial lens has no preferred side.
 Drag the hole anywhere on the page — it records your offset from its drift path
 and wanders on from where you let go. The panel sets mass (pixels per
 Schwarzschild radius), spin, inclination (face-on ring through to edge-on),
-the Einstein radius the type responds to, disk brightness, drift speed and
-render resolution.
+the Einstein radius the type responds to, disk brightness, drift speed,
+relativistic `Physics`, and render resolution.
 
 The panel collapses to a small tab, and starts collapsed at 640px and below,
 where expanded it would cover a third of the viewport (36% down to 5%). Your
 choice sticks once you've made it.
 
 `Score` plays an original ambient piece, off by default.
+
+## Relativistic beaming
+
+A disk orbiting this close is moving at a large fraction of `c`, so the side
+rotating toward you is beamed and blueshifted while the receding side is dimmed
+and reddened. At each disk crossing the render computes the Doppler factor for
+a Keplerian orbiter and the gravitational redshift climbing out of the well:
+
+```
+beta  = sqrt(M/r)                       Keplerian orbital speed, M = rs/2
+dopp  = 1 / (gamma * (1 - beta.n))      n = source -> observer
+grav  = sqrt(1 - rs/r)
+shift = dopp * grav
+```
+
+Brightness scales as the cube of that shift, and the colour ramp is walked by
+it too — an approaching element reads hotter and whiter, a receding one slides
+into deep red.
+
+The `Physics` slider mixes it in. At 0 the disk is near-symmetric, which is the
+look the film chose, having deliberately dialled the asymmetry out on the
+grounds that a lopsided disk reads as a mistake rather than as physics. At 1 it
+is fully beamed. Measured across the two flanks: a brightness ratio of 1.11 at
+0, and 2.98 at 1.
+
+## Why not Three.js
+
+The lensing is already WebGL — a fragment shader marching null geodesics. Three
+would add a scene graph, cameras, materials and loaders for a single fullscreen
+quad that uses none of them, run the identical shader at the identical cost,
+and add well over the page's entire current weight. It would earn its place if
+this needed real geometry, orbit controls, shadow maps or a post-processing
+chain. It needs none.
+
+The type stays in the DOM for the same kind of reason. Warping it on the GPU
+means rasterising it to a texture, which costs selection, copy-paste, screen
+readers, SEO and crisp scaling. The glyph pass costs 2.9 ms/frame, so there is
+nothing to reclaim.
 
 ## Performance
 
