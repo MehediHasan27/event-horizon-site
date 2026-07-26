@@ -170,6 +170,19 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
 .tog[aria-pressed="true"]{border-color:var(--amber);color:var(--amber)}
 .tog:focus-visible{outline:1px solid var(--amber);outline-offset:3px}
 .grabbing,.grabbing *{cursor:grabbing !important;user-select:none}
+
+/* The haptic actuator. It has to be really rendered: the operating system is
+   reacting to a native switch control being toggled, so display:none or
+   visibility:hidden leaves nothing to toggle and no tap is produced. Kept
+   small and faint, outside the collapsible panel body, and it visibly flips
+   when a jet fires. */
+.hapticActuator{
+  position:fixed;left:10px;bottom:10px;z-index:5;
+  transform:scale(.62);transform-origin:left bottom;
+  opacity:.22;pointer-events:none;line-height:0;
+}
+.hapticActuator input{margin:0}
+@media (prefers-reduced-motion:reduce){ .hapticActuator{opacity:.14} }
 </style>
 
 <canvas id="gl" aria-hidden="true"></canvas>
@@ -951,9 +964,9 @@ const Haptics = (function(){
     if (label) return;
     const id = 'web-haptic-switch';
     label = document.createElement('label');
+    label.className = 'hapticActuator';
     label.setAttribute('for', id);
     label.setAttribute('aria-hidden', 'true');
-    label.style.display = 'none';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.setAttribute('switch', '');
@@ -961,7 +974,6 @@ const Haptics = (function(){
     input.tabIndex = -1;
     input.style.all = 'initial';
     input.style.appearance = 'auto';
-    input.style.display = 'none';
     label.appendChild(input);
     document.body.appendChild(label);
   }
@@ -977,9 +989,32 @@ const Haptics = (function(){
     return out;
   }
 
+  // A switch toggle is one short tap. Sustaining a pulse means a train of
+  // them; the weaker the step, the wider the gap between taps.
+  function switchTrain(steps){
+    ensureDOM();
+    if (!label) return 0;
+    let t = 0, fired = 0;
+    for (const st of steps){
+      t += st.delay || 0;
+      const inten = st.intensity == null ? 1 : st.intensity;
+      const gap = 16 + (1 - inten) * 26;
+      for (let e = 0; e <= st.duration; e += gap){
+        setTimeout(() => label.click(), t + e);
+        fired++;
+      }
+      t += st.duration;
+    }
+    return fired;
+  }
+
   return {
-    mode: canVibrate ? 'vibrate' : 'switch',
+    mode: canVibrate ? 'vibrate+switch' : 'switch',
     fire(steps){
+      // Always drive the switch as well. On a Force Touch trackpad the OS taps
+      // for the native control regardless of whether the Vibration API exists,
+      // and where it does exist the two are complementary rather than exclusive.
+      switchTrain(steps);
       if (canVibrate){
         const pat = [];
         for (const st of steps){
@@ -989,22 +1024,7 @@ const Haptics = (function(){
         navigator.vibrate(pat);
         return 'vibrate';
       }
-      // A switch toggle is one short tap. Sustaining a pulse means a train of
-      // them; the weaker the step, the wider the gap between taps.
-      ensureDOM();
-      if (!label) return 'none';
-      let t = 0, fired = 0;
-      for (const st of steps){
-        t += st.delay || 0;
-        const inten = st.intensity == null ? 1 : st.intensity;
-        const gap = 16 + (1 - inten) * 26;
-        for (let e = 0; e <= st.duration; e += gap){
-          setTimeout(() => label.click(), t + e);
-          fired++;
-        }
-        t += st.duration;
-      }
-      return 'switch:' + fired;
+      return 'switch';
     }
   };
 })();

@@ -85,31 +85,30 @@ and at the previous scale their tips fell off the screen.
 
 ## Haptics
 
-There is no single web haptics API, so there are two routes, adapted from
-[web-haptics](https://github.com/lochie/web-haptics) by Lochie (MIT) and
-reimplemented inline because this page ships as one file with no bundler.
+There is no JavaScript haptics API doing this work. The trick — from
+[web-haptics](https://github.com/lochie/web-haptics) by Lochie (MIT),
+reimplemented inline here because this page ships as one file with no bundler —
+is to let the **operating system** react to a native control being toggled.
 
-On Android, `navigator.vibrate` — with each pulse chopped into on/off slices so
-a duty cycle stands in for the intensity the API does not expose. On iOS there
-is no vibration API at all, but toggling a `switch` checkbox taps the Taptic
-Engine, so a hidden one is clicked instead; that needs iOS 17.4 or later, where
-Safari added the attribute. Desktop browsers have no haptic hardware and will
-stay silent either way.
+A `<input type="checkbox" switch>` is rendered as a real system switch, and
+toggling one produces a tap: the Taptic Engine on an iPhone, and the Force Touch
+trackpad on a Mac. Clicking its label programmatically is enough to fire it. On
+Android, `navigator.vibrate` runs alongside, with each pulse chopped into on/off
+slices so a duty cycle stands in for the intensity that API will not expose.
 
-The iOS path is fussy about structure. The input has to sit *inside* the label
-and keep its native appearance, or the switch is not treated as a real control
-and nothing is felt. A toggle is also only a single short tap, so sustaining a
-pulse means firing a train of them — roughly every 16ms, wider apart for weaker
-steps.
+The detail that decides whether any of it works: **the switch has to be really
+rendered**. `display:none` or `visibility:hidden` leaves no control for the OS to
+act on and nothing is felt. It lives at the bottom-left, small and faint at 22%
+opacity, deliberately outside the collapsible panel body — that body is
+`display:none` when the panel is shut, which would silently kill it. It flips
+visibly when a jet fires.
 
-It is **opt-in**, off by default, and verified never to fire before you turn it
-on. The jet burst is a three-step rising pattern timed to the launch.
+A toggle is also a single very short tap, so sustaining a pulse means firing a
+train of them, roughly every 16ms and wider apart for weaker steps.
 
-**Desktop cannot do this at all.** No browser exposes trackpad or mouse haptics
-to the web on any OS, so a laptop will always be silent here regardless of
-settings. This needs a phone.
+Opt-in, off by default, and verified never to fire before you turn it on.
 
-## Relativistic beaming
+## Relativistic beaming## Relativistic beaming
 
 A disk orbiting this close is moving at a large fraction of `c`, so the side
 rotating toward you is beamed and blueshifted while the receding side is dimmed
