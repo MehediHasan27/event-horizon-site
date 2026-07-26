@@ -70,18 +70,32 @@ choice sticks once you've made it.
 
 ## Performance
 
-The integrator is the expensive half — 112 adaptive steps per pixel, with a
-per-pixel step jitter so the fixed cadence does not alias into concentric rings.
+The integrator is the expensive half, and it is where all the tuning went.
 
-It renders at **full resolution by default**. If that is too slow on your
-hardware, drag `Res` down, or all the way to its lowest position for `auto`,
-which hands the scale to a tuner driven by measured frame time and reports what
-it settles on. The device pixel ratio is capped at 1.5, so "100%" means full CSS
-resolution rather than full retina — visually near-identical here for a soft
-render, at a little over half the cost.
+Rays are marched with a per-pixel step jitter, so the fixed cadence does not
+alias into concentric rings. The single biggest saving is the exit test: a ray
+that is outbound and already past the disk's outer radius cannot hit anything
+else, and the deflection still to come is negligible, so it stops there. Most
+sky pixels now retire on their first step instead of marching out to `r = 32`.
+Along with a 96-step cap, a larger adaptive `dt`, one `inversesqrt` in place of
+a `sqrt` and a divide, and fewer noise octaves, that measured **1.39x** faster
+per draw at identical resolution (2702ms -> 1942ms under software
+rasterisation, 800x560).
 
-The glyph pass is cheap by comparison: measured at 2.9 ms/frame for ~1200
-lensed glyphs, and it does no style writes at all while the page is idle.
+On top of that the field renders at **30 Hz** while the glyph pass keeps 60.
+The disk flows slowly and the hole drifts about ten pixels a second, so drift
+across one skipped frame is sub-pixel. That is roughly another 2x, for about
+**2.8x less field work per second**.
+
+Render scale is **auto by default**, tuned from measured frame time, and the
+panel reports where it settled. Pin it with the `Res` slider; its lowest
+position hands control back to the tuner. Full resolution measured 11 fps on
+real hardware before this pass, which is why it is no longer the default.
+Device pixel ratio is capped at 1.5, so "100%" means full CSS resolution rather
+than full retina — visually near-identical for a render this soft.
+
+The glyph pass is cheap by comparison: 2.9 ms/frame for ~1200 lensed glyphs,
+and no style writes at all while the page is idle.
 
 `prefers-reduced-motion` stops the disk turning and the hole drifting. The
 lensing is spatial rather than temporal, so the warp itself is kept.

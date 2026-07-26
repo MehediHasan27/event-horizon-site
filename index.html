@@ -188,7 +188,7 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
       <p class="eyebrow">Ray-traced null geodesics</p>
       <h1 data-warp>A disk seen <em>over</em> the top of itself</h1>
       <p class="standfirst" data-warp>Turn an accretion disk edge-on and gravity lifts its far side into an arch above the shadow, and drops a second copy below. One flat ring, three images, no perspective trick involved.</p>
-      <p class="byline"><b>Shadow</b> √27 ⁄ 2 ≈ 2.598 r<sub>s</sub><br><b>Photon sphere</b> 1.5 r<sub>s</sub><br><b>Orbit</b> Ω ∝ r<sup>−3⁄2</sup><br><b>Integrator</b> 112 steps, adaptive</p>
+      <p class="byline"><b>Shadow</b> √27 ⁄ 2 ≈ 2.598 r<sub>s</sub><br><b>Photon sphere</b> 1.5 r<sub>s</sub><br><b>Orbit</b> Ω ∝ r<sup>−3⁄2</sup><br><b>Integrator</b> 96 steps, adaptive</p>
     </div>
 
     <div class="body">
@@ -246,7 +246,7 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
   <div class="row"><label for="re">Lens</label><input id="re" type="range" min="60" max="280" step="1" value="118"><span class="val" id="reV">118</span></div>
   <div class="row"><label for="db">Disk</label><input id="db" type="range" min="0" max="160" step="1" value="88"><span class="val" id="dbV">0.88</span></div>
   <div class="row"><label for="dr">Drift</label><input id="dr" type="range" min="0" max="200" step="1" value="55"><span class="val" id="drV">0.55</span></div>
-  <div class="row"><label for="rz">Res</label><input id="rz" type="range" min="25" max="100" step="5" value="100"><span class="val" id="rzV">100%</span></div>
+  <div class="row"><label for="rz">Res</label><input id="rz" type="range" min="25" max="100" step="5" value="25"><span class="val" id="rzV">auto</span></div>
   <div class="row"><label for="snd">Score</label><button class="tog" id="snd" type="button" aria-pressed="false">Play</button><span class="val" id="sndV">off</span></div>
   <div class="hint" id="fpsV">—</div>
   </div>
@@ -269,8 +269,8 @@ const S = {
   ox:0, oy:0,        // reader's offset from the drift path
   baseX:0, baseY:0,  // where the drift path currently is
   dpr: Math.min(devicePixelRatio || 1, 1.5),
-  rs: 1.0,           // render scale; 1.0 = full, or auto-tuned from frame time
-  noAutoRes: true    // full res by default — the Res control re-enables auto
+  rs: 0.85,          // render scale, auto-tuned from frame time unless pinned
+  noAutoRes: false   // the Res slider pins it; lowest position hands it back
 };
 
 /* ══ analytic lens for the type ═══════════════════
@@ -391,7 +391,8 @@ vec3 disk(float rd, float ang){
   // Filaments stretched along the flow. Built from integer harmonics of the
   // azimuth so they wrap exactly at +-pi — a raw fbm(angle) leaves a seam.
   // A radial noise term shifts each ring's phase, so the streaks wander.
-  float ph  = fbm(vec2(rd*1.5, 1.7)) * 6.283;
+  float n1  = fbm(vec2(rd*1.5, 1.7));           // drives phase and banding both
+  float ph  = n1 * 6.283;
   float fil = 0.52*sin( 3.0*a + ph)
             + 0.30*sin( 5.0*a + ph*1.6 + 2.1)
             + 0.18*sin( 9.0*a + ph*2.3 + 4.2);
@@ -404,7 +405,7 @@ vec3 disk(float rd, float ang){
   vec2  q  = vec2(rd*cos(ang), rd*sin(ang));
   float cloud = fbm(vec2(q.x*cs - q.y*sn, q.x*sn + q.y*cs) * 0.42);
 
-  float band = 0.62 + 0.38*fbm(vec2(rd*1.5, 8.3));   // broad concentric structure
+  float band = 0.62 + 0.38*n1;                       // broad concentric structure
   float fall = pow(1.0 - t, 0.95) * smoothstep(0.0, 0.075, t);
   float lum  = fall * band * (0.40 + 0.85*fil) * (0.55 + 0.70*cloud);
 
@@ -428,8 +429,7 @@ float starLayer(vec2 q, float k, float seed){
 vec3 sky(vec3 d){
   vec2 q = vec2(atan(d.z,d.x)*1.6, asin(clamp(d.y,-1.0,1.0))*1.9);
   float s = starLayer(q, 52.0, 0.0)
-          + starLayer(q, 108.0, 17.3) * 0.70
-          + starLayer(q, 210.0, 41.9) * 0.38;
+          + starLayer(q, 112.0, 17.3) * 0.62;
   return vec3(0.84,0.88,1.0) * s;
 }
 
@@ -453,14 +453,20 @@ void main(){
   // a fixed step cadence aliases into concentric rings; jitter breaks it into noise
   float jit = 0.86 + 0.28*h21(gl_FragCoord.xy);
 
-  for (int i = 0; i < 112; i++){
-    float r  = length(p);
-    if (r < 1.0){ captured = true; break; }
-    if (r > 32.0 && dot(v, p) > 0.0) break;      // escaped, outbound
+  for (int i = 0; i < 96; i++){
+    float r2 = dot(p, p);
+    if (r2 < 1.0){ captured = true; break; }
 
-    float r2 = r*r;
-    vec3  ac = -1.5 * h2 * p / (r2*r2*r);        // Schwarzschild null geodesic
-    float dt = clamp(0.078*r, 0.028, 1.05) * jit;
+    // Outbound and already past the disk: nothing left to hit, and the
+    // deflection still to come is negligible. This retires most sky pixels
+    // on their first step instead of marching them out to r = 32.
+    if (r2 > (R_OUT+1.0)*(R_OUT+1.0) && dot(v, p) > 0.0) break;
+
+    float ir = inversesqrt(r2);                  // one rsqrt beats sqrt + divide
+    float r  = r2 * ir;
+    float i2 = ir*ir;
+    vec3  ac = -1.5 * h2 * p * (i2*i2*ir);       // -1.5 h^2 p / r^5
+    float dt = clamp(0.10*r, 0.035, 1.45) * jit;
 
     vec3 prev = p;
     v += ac*dt;
@@ -471,10 +477,11 @@ void main(){
     // the hole (so the shadow stops being black) and averages the Keplerian
     // shear across radii, which is the texture the whole thing is for.
     if (prev.y*p.y < 0.0){
-      float f = prev.y/(prev.y - p.y);
-      vec3  x = mix(prev, p, f);
-      float rd = length(x.xz);
-      if (rd > R_IN && rd < R_OUT) acc += disk(rd, atan(x.z, x.x)) * uDisk;
+      float f  = prev.y/(prev.y - p.y);
+      vec3  x  = mix(prev, p, f);
+      float d2 = dot(x.xz, x.xz);
+      if (d2 > R_IN*R_IN && d2 < R_OUT*R_OUT)
+        acc += disk(sqrt(d2), atan(x.z, x.x)) * uDisk;
     }
   }
 
@@ -586,6 +593,7 @@ stepDrift(0);
 
 /* ══ loop, with resolution tuned from measured frame time ══ */
 let dirty = true, frames = 0, fpsT = 0, lastN = 0, lastMs = 0;
+let lastField = 0; const FIELD_MS = 1000/30;
 let acc = 0, accN = 0, lastAdjust = 0, fpsNow = 0;
 const markDirty = () => { dirty = true; };
 addEventListener('scroll', markDirty, { passive:true });
@@ -603,15 +611,17 @@ function loop(ms){
     markDirty();                        // the hole moved, so the type must follow
   }
 
-  if (!reduce || dirty) drawGL(t);
+  // The field is the expensive half and it changes slowly, so it runs at 30 Hz
+  // while the glyph pass keeps 60. Drift across one skipped frame is sub-pixel.
+  if ((!reduce || dirty) && ms - lastField >= FIELD_MS){ drawGL(t); lastField = ms; }
   if (dirty){ lastN = warp(); dirty = false; }
 
   // adaptive render scale: the integrator is the expensive half
   if (!S.noAutoRes && accN >= 24 && ms - lastAdjust > 900){
     const avg = acc/accN; acc = 0; accN = 0;
     let rs = S.rs;
-    if (avg > 21 && rs > 0.4)      rs = Math.max(0.4, rs - 0.12);
-    else if (avg < 12.5 && rs < 1) rs = Math.min(1, rs + 0.08);
+    if (avg > 19 && rs > 0.45)     rs = Math.max(0.45, rs - 0.10);
+    else if (avg < 13.5 && rs < 1) rs = Math.min(1, rs + 0.07);
     if (rs !== S.rs){ S.rs = rs; resizeGL(); lastAdjust = ms; }
   }
 
