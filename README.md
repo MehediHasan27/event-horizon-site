@@ -125,8 +125,14 @@ The disk flows slowly and the hole drifts about ten pixels a second, so drift
 across one skipped frame is sub-pixel. That is roughly another 2x, for about
 **2.8x less field work per second**.
 
-Render scale is **auto by default**, tuned from measured frame time, and the
-panel reports where it settled. Pin it with the `Res` slider; its lowest
+Render scale is **auto by default**, and the signal it tunes against matters.
+Because the field runs at 30 Hz, frames alternate cheap (glyphs only) and
+expensive (glyphs plus field), and averaging the two hides exactly the frames
+that miss vsync. So field frames are timed on their own and the scale is aimed
+at fitting one inside a single vsync. A frame that runs badly over budget drops
+the scale immediately rather than waiting for an average, since the slower the
+device the fewer samples it can gather. The panel reports both the scale and
+the measured field-frame cost. Pin it with the `Res` slider; its lowest
 position hands control back to the tuner. Full resolution measured 11 fps on
 real hardware before this pass, which is why it is no longer the default.
 Device pixel ratio is capped at 1.5, so "100%" means full CSS resolution rather

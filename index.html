@@ -492,18 +492,20 @@ void main(){
         // Doppler factor for a Keplerian orbiter, plus the gravitational
         // redshift climbing out of the well. Rays are traced backwards, so
         // the direction from source to observer is -v.
-        vec3  nobs = normalize(-v);
-        vec3  tang = normalize(cross(vec3(0.0,1.0,0.0), x));
-        float beta = sqrt(0.5/rd);                       // v/c, M = rs/2
-        float gam  = inversesqrt(max(1.0 - beta*beta, 1e-3));
-        float dopp = 1.0 / max(gam*(1.0 - beta*dot(tang, nobs)), 1e-3);
-        float grav = sqrt(max(1.0 - 1.0/rd, 1e-3));
-        float shift = dopp * grav;
-
-        // beaming goes as the cube of the shift; dial it back to the
-        // symmetric look the film chose when uPhys is low
-        float boost = mix(1.0, clamp(shift*shift*shift, 0.05, 7.0), uPhys);
-        float sc    = mix(1.0, shift, uPhys);
+        float boost = 1.0, sc = 1.0;
+        if (uPhys > 0.01){                               // uniform branch, coherent
+          vec3  nobs = normalize(-v);
+          vec3  tang = normalize(cross(vec3(0.0,1.0,0.0), x));
+          float beta = sqrt(0.5/rd);                     // v/c, M = rs/2
+          float gam  = inversesqrt(max(1.0 - beta*beta, 1e-3));
+          float dopp = 1.0 / max(gam*(1.0 - beta*dot(tang, nobs)), 1e-3);
+          float grav = sqrt(max(1.0 - 1.0/rd, 1e-3));
+          float shift = dopp * grav;
+          // beaming goes as the cube of the shift; dial it back toward the
+          // symmetric look the film chose when uPhys is low
+          boost = mix(1.0, clamp(shift*shift*shift, 0.05, 7.0), uPhys);
+          sc    = mix(1.0, shift, uPhys);
+        }
         acc += disk(rd, atan(x.z, x.x), sc) * uDisk * boost;
       }
     }
@@ -619,6 +621,10 @@ stepDrift(0);
 /* ══ loop, with resolution tuned from measured frame time ══ */
 let dirty = true, frames = 0, fpsT = 0, lastN = 0, lastMs = 0;
 let lastField = 0; const FIELD_MS = 1000/30;
+// Frames alternate cheap (glyphs only) and expensive (glyphs + field). Averaging
+// the two hides the frames that actually miss vsync, so the field frames are
+// timed on their own and the render scale is tuned against those.
+let fAcc = 0, fN = 0, fieldPending = false;
 let acc = 0, accN = 0, lastAdjust = 0, fpsNow = 0;
 const markDirty = () => { dirty = true; };
 addEventListener('scroll', markDirty, { passive:true });
@@ -638,15 +644,27 @@ function loop(ms){
 
   // The field is the expensive half and it changes slowly, so it runs at 30 Hz
   // while the glyph pass keeps 60. Drift across one skipped frame is sub-pixel.
-  if ((!reduce || dirty) && ms - lastField >= FIELD_MS){ drawGL(t); lastField = ms; }
+  if (fieldPending){
+    const fms = ms - lastField;
+    fAcc += fms; fN++; fieldPending = false;
+    // A badly over-budget frame should not wait for an average. The slower the
+    // device, the fewer samples it can gather, so react to the first bad one.
+    if (!S.noAutoRes && fms > 55 && S.rs > 0.34){
+      S.rs = Math.max(0.34, S.rs - 0.15); resizeGL();
+      fAcc = 0; fN = 0; lastAdjust = ms;
+    }
+  }
+  if ((!reduce || dirty) && ms - lastField >= FIELD_MS){
+    drawGL(t); lastField = ms; fieldPending = true;
+  }
   if (dirty){ lastN = warp(); dirty = false; }
 
-  // adaptive render scale: the integrator is the expensive half
-  if (!S.noAutoRes && accN >= 24 && ms - lastAdjust > 900){
-    const avg = acc/accN; acc = 0; accN = 0;
+  // Adaptive render scale, aimed at fitting one field frame inside a vsync.
+  if (!S.noAutoRes && fN >= 4 && ms - lastAdjust > 800){
+    const favg = fAcc/fN; fAcc = 0; fN = 0;
     let rs = S.rs;
-    if (avg > 19 && rs > 0.45)     rs = Math.max(0.45, rs - 0.10);
-    else if (avg < 13.5 && rs < 1) rs = Math.min(1, rs + 0.07);
+    if (favg > 16.5 && rs > 0.34)  rs = Math.max(0.34, rs - 0.09);
+    else if (favg < 11 && rs < 1)  rs = Math.min(1, rs + 0.06);
     if (rs !== S.rs){ S.rs = rs; resizeGL(); lastAdjust = ms; }
   }
 
@@ -654,7 +672,8 @@ function loop(ms){
   if (ms - fpsT > 700){
     fpsNow = Math.round(frames*1000/(ms - fpsT));
     document.getElementById('fpsV').textContent =
-      fpsNow + ' fps · ' + Math.round(S.rs*100) + '% res · ' + lastN + ' glyphs';
+      fpsNow + ' fps · ' + Math.round(S.rs*100) + '% res · field ' +
+      (fN ? (fAcc/fN).toFixed(0) : '—') + 'ms · ' + lastN + ' glyphs';
     document.getElementById('tabFps').textContent = fpsNow + ' fps';
     if (!S.noAutoRes){
       const rz = document.getElementById('rz');
