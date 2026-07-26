@@ -943,19 +943,27 @@ hudDefault();
    page ships as one file with no bundler. */
 const Haptics = (function(){
   const canVibrate = typeof navigator.vibrate === 'function';
-  let sw = null, swLabel = null;
+  let label = null;
 
-  function ensureSwitch(){
-    if (swLabel) return;
-    const host = document.createElement('div');
-    host.setAttribute('aria-hidden','true');
-    host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
-    sw = document.createElement('input');
-    sw.type = 'checkbox'; sw.setAttribute('switch',''); sw.id = 'hapticSwitch'; sw.tabIndex = -1;
-    swLabel = document.createElement('label');
-    swLabel.setAttribute('for','hapticSwitch');
-    host.appendChild(sw); host.appendChild(swLabel);
-    document.body.appendChild(host);
+  // The input has to sit *inside* the label, and has to keep its native
+  // appearance, or iOS will not treat it as a real switch and no tap is felt.
+  function ensureDOM(){
+    if (label) return;
+    const id = 'web-haptic-switch';
+    label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.setAttribute('aria-hidden', 'true');
+    label.style.display = 'none';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.setAttribute('switch', '');
+    input.id = id;
+    input.tabIndex = -1;
+    input.style.all = 'initial';
+    input.style.appearance = 'auto';
+    input.style.display = 'none';
+    label.appendChild(input);
+    document.body.appendChild(label);
   }
 
   // duty-cycle an on-slice so weaker pulses feel weaker on Android
@@ -971,7 +979,6 @@ const Haptics = (function(){
 
   return {
     mode: canVibrate ? 'vibrate' : 'switch',
-    // steps: [{duration, delay, intensity}]
     fire(steps){
       if (canVibrate){
         const pat = [];
@@ -982,15 +989,22 @@ const Haptics = (function(){
         navigator.vibrate(pat);
         return 'vibrate';
       }
-      ensureSwitch();
-      if (!swLabel) return 'none';
-      let t = 0;
+      // A switch toggle is one short tap. Sustaining a pulse means a train of
+      // them; the weaker the step, the wider the gap between taps.
+      ensureDOM();
+      if (!label) return 'none';
+      let t = 0, fired = 0;
       for (const st of steps){
         t += st.delay || 0;
-        setTimeout(() => swLabel.click(), t);
+        const inten = st.intensity == null ? 1 : st.intensity;
+        const gap = 16 + (1 - inten) * 26;
+        for (let e = 0; e <= st.duration; e += gap){
+          setTimeout(() => label.click(), t + e);
+          fired++;
+        }
         t += st.duration;
       }
-      return 'switch';
+      return 'switch:' + fired;
     }
   };
 })();

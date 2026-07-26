@@ -96,8 +96,18 @@ Engine, so a hidden one is clicked instead; that needs iOS 17.4 or later, where
 Safari added the attribute. Desktop browsers have no haptic hardware and will
 stay silent either way.
 
+The iOS path is fussy about structure. The input has to sit *inside* the label
+and keep its native appearance, or the switch is not treated as a real control
+and nothing is felt. A toggle is also only a single short tap, so sustaining a
+pulse means firing a train of them — roughly every 16ms, wider apart for weaker
+steps.
+
 It is **opt-in**, off by default, and verified never to fire before you turn it
 on. The jet burst is a three-step rising pattern timed to the launch.
+
+**Desktop cannot do this at all.** No browser exposes trackpad or mouse haptics
+to the web on any OS, so a laptop will always be silent here regardless of
+settings. This needs a phone.
 
 ## Relativistic beaming
 
