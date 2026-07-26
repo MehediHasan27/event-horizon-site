@@ -247,6 +247,8 @@ input[type=range]:focus-visible{outline:1px solid var(--amber);outline-offset:5p
   <div class="row"><label for="db">Disk</label><input id="db" type="range" min="0" max="160" step="1" value="88"><span class="val" id="dbV">0.88</span></div>
   <div class="row"><label for="dr">Drift</label><input id="dr" type="range" min="0" max="200" step="1" value="55"><span class="val" id="drV">0.55</span></div>
   <div class="row"><label for="ph">Physics</label><input id="ph" type="range" min="0" max="100" step="1" value="50"><span class="val" id="phV">0.50</span></div>
+  <div class="row"><label for="jt">Jets</label><input id="jt" type="range" min="0" max="150" step="1" value="85"><span class="val" id="jtV">0.85</span></div>
+  <div class="row"><label for="hp">Haptics</label><button class="tog" id="hp" type="button" aria-pressed="false">Off</button><span class="val" id="hpV">—</span></div>
   <div class="row"><label for="rz">Res</label><input id="rz" type="range" min="25" max="100" step="5" value="25"><span class="val" id="rzV">auto</span></div>
   <div class="row"><label for="snd">Score</label><button class="tog" id="snd" type="button" aria-pressed="false">Play</button><span class="val" id="sndV">off</span></div>
   <div class="hint" id="fpsV">—</div>
@@ -264,6 +266,9 @@ const S = {
   incl:84,           // degrees from disk normal; 90 = edge-on
   RE:118,            // Einstein radius for the type, px
   disk:0.88,
+  jet:0.85,          // jet intensity
+  jetT:0,            // jet clock, deliberately not scaled by spin
+  haptics:false,
   phys:0.5,          // 0 = symmetric film look, 1 = full relativistic beaming
   spin:1.0,          // disk rotation multiplier
   spinT:0,           // integrated disk phase, so changing spin never jumps it
@@ -366,7 +371,9 @@ uniform float uT;
 uniform float uScale;   // px per rs
 uniform float uIncl;    // radians from disk normal
 uniform float uDisk;
-uniform float uPhys;   // 0 = symmetric film look, 1 = full relativistic beaming
+uniform float uPhys;
+uniform float uJet;    // jet intensity, 0 = off
+uniform float uJetT;   // seconds, independent of disk spin, for the launch cycle   // 0 = symmetric film look, 1 = full relativistic beaming
 
 const float R_IN  = 2.6;
 const float R_OUT = 17.0;
@@ -431,6 +438,38 @@ float starLayer(vec2 q, float k, float seed){
   vec2 f = fract(g) - 0.5 - (vec2(h21(c+1.7), h21(c+9.1)) - 0.5)*0.7;
   return pow(h, 56.0) * 3.0 * exp(-dot(f,f)*62.0);
 }
+const float JET_LEN = 24.0;
+
+// Bipolar jet emission at a point, integrated volumetrically along the ray.
+// Because it is sampled inside the geodesic march, the base of the jet is
+// lensed by the same curved space as everything else.
+vec3 jetEmit(vec3 q){
+  float ay = abs(q.y);
+  if (ay < 0.85 || ay > JET_LEN) return vec3(0.0);
+  float rr2 = dot(q.xz, q.xz);
+  float rad = 0.34 + ay*0.098;                     // narrow cone, opening with height
+  if (rr2 > rad*rad*8.0) return vec3(0.0);         // cheap reject, most steps take it
+
+  float rr   = sqrt(rr2);
+  float core = exp(-(rr2)/(rad*rad));
+  core = core*0.55 + pow(core, 3.5)*0.85;          // bright thread inside a sheath
+  float ang  = atan(q.z, q.x);
+  float hel  = 0.55 + 0.45*sin(ang*2.0 - ay*0.72 + uJetT*1.5);   // helical filaments
+
+  // a knot launched every ten seconds, travelling out along the axis
+  float knot = exp(-pow((ay - mod(uJetT, 10.0)*3.2)*0.5, 2.0)) * 2.1;
+
+  float fade = smoothstep(JET_LEN, JET_LEN*0.30, ay);
+  float lum  = core * (0.30 + 0.70*hel) * (0.55 + knot) * fade;
+
+  vec3 hot = vec3(0.96,0.92,1.00);
+  vec3 mid = vec3(0.70,0.33,1.00);
+  vec3 far = vec3(0.40,0.09,0.70);
+  vec3 col = mix(hot, mid, clamp(rr/rad, 0.0, 1.0));
+  col = mix(col, far, clamp(ay/JET_LEN, 0.0, 1.0));
+  return col * lum;
+}
+
 // starfield sampled along an escaped ray's final direction
 vec3 sky(vec3 d){
   vec2 q = vec2(atan(d.z,d.x)*1.6, asin(clamp(d.y,-1.0,1.0))*1.9);
@@ -458,6 +497,10 @@ void main(){
   bool captured = false;
   // a fixed step cadence aliases into concentric rings; jitter breaks it into noise
   float jit = 0.86 + 0.28*h21(gl_FragCoord.xy);
+  // with jets lit the volume extends well past the disk, so the exit test has
+  // to reach further; without them it stays tight and most sky pixels retire
+  // on their first step
+  float bound = uJet > 0.01 ? JET_LEN + 3.0 : R_OUT + 1.0;
 
   for (int i = 0; i < 96; i++){
     float r2 = dot(p, p);
@@ -466,13 +509,15 @@ void main(){
     // Outbound and already past the disk: nothing left to hit, and the
     // deflection still to come is negligible. This retires most sky pixels
     // on their first step instead of marching them out to r = 32.
-    if (r2 > (R_OUT+1.0)*(R_OUT+1.0) && dot(v, p) > 0.0) break;
+    if (r2 > bound*bound && dot(v, p) > 0.0) break;
 
     float ir = inversesqrt(r2);                  // one rsqrt beats sqrt + divide
     float r  = r2 * ir;
     float i2 = ir*ir;
     vec3  ac = -1.5 * h2 * p * (i2*i2*ir);       // -1.5 h^2 p / r^5
     float dt = clamp(0.10*r, 0.035, 1.45) * jit;
+
+    if (uJet > 0.01) acc += jetEmit(p) * uJet * dt * 0.30;
 
     vec3 prev = p;
     v += ac*dt;
@@ -545,7 +590,7 @@ function initGL(){
   const loc = gl.getAttribLocation(prog,'p');
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-  for (const n of ['uRes','uC','uT','uScale','uIncl','uDisk','uPhys']) U[n] = gl.getUniformLocation(prog,n);
+  for (const n of ['uRes','uC','uT','uScale','uIncl','uDisk','uPhys','uJet','uJetT']) U[n] = gl.getUniformLocation(prog,n);
   return true;
 }
 let useGL = initGL();
@@ -576,6 +621,8 @@ function drawGL(t){
   gl.uniform1f(U.uIncl, S.incl*Math.PI/180);
   gl.uniform1f(U.uDisk, S.disk);
   gl.uniform1f(U.uPhys, S.phys);
+  gl.uniform1f(U.uJet, S.jet);
+  gl.uniform1f(U.uJetT, S.jetT);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
@@ -587,7 +634,9 @@ function place(){
     if (el){ el.value = S.RE; document.getElementById('reV').textContent = String(S.RE); }
   }
   if (!S.userMass){
-    S.scale = Math.round(Math.max(13, Math.min(innerWidth*0.021, 30)));
+    // pulled back from the earlier framing: the jets run to 24 rs, and at the
+    // old scale their tips fell off the screen
+    S.scale = Math.round(Math.max(9, Math.min(innerWidth*0.0135, 20)));
     const el = document.getElementById('ms');
     if (el){ el.value = S.scale; document.getElementById('msV').textContent = String(S.scale); }
   }
@@ -621,6 +670,7 @@ stepDrift(0);
 /* ══ loop, with resolution tuned from measured frame time ══ */
 let dirty = true, frames = 0, fpsT = 0, lastN = 0, lastMs = 0;
 let lastField = 0; const FIELD_MS = 1000/30;
+let lastJetCycle = 0;                       // start at 0 so nothing fires on load
 // Frames alternate cheap (glyphs only) and expensive (glyphs + field). Averaging
 // the two hides the frames that actually miss vsync, so the field frames are
 // timed on their own and the render scale is tuned against those.
@@ -632,6 +682,14 @@ addEventListener('scroll', markDirty, { passive:true });
 function loop(ms){
   const dt = lastMs ? Math.min((ms - lastMs)/1000, 0.08) : 0;   // cap guards tab-restore jumps
   if (!reduce) S.spinT += dt * S.spin;      // integrate, don't multiply wall-clock
+  if (!reduce){
+    S.jetT += dt;                           // jet cycle runs on its own clock
+    const cyc = Math.floor(S.jetT / 10);
+    if (cyc !== lastJetCycle){
+      lastJetCycle = cyc;
+      if (S.haptics) Haptics.fire(JET_HAPTIC);
+    }
+  }
   const t = reduce ? 9.0 : S.spinT;
   if (lastMs){ acc += ms - lastMs; accN++; }
   lastMs = ms;
@@ -744,6 +802,7 @@ bind('db',  v      => { S.disk = v/100; },                      v => (v/100).toF
 bind('dr',  v      => { S.drift = v/100; },                     v => (v/100).toFixed(2));
 bind('sp',  v      => { S.spin = v/100; },                      v => (v/100).toFixed(2));
 bind('ph',  v      => { S.phys = v/100; },                      v => (v/100).toFixed(2));
+bind('jt',  v      => { S.jet  = v/100; },                      v => (v/100).toFixed(2));
 // 25 means hand the scale back to the frame-time tuner
 bind('rz',  v => {
   if (v <= 25){ S.noAutoRes = false; }
@@ -872,6 +931,86 @@ hudTab.addEventListener('click', () => {
   setHud(hudEl.dataset.open !== 'true');
 });
 hudDefault();
+
+/* ══ haptics ══════════════════════════════════════
+   Two routes, because there is no one web haptics API.
+     Android — navigator.vibrate, with each pulse chopped into on/off slices
+       so a duty cycle stands in for the intensity the API will not expose.
+     iOS     — no vibration API at all, but toggling a `switch` checkbox taps
+       the Taptic Engine, so a hidden one is clicked instead. Needs iOS 17.4+,
+       where Safari added the attribute.
+   Technique from web-haptics by Lochie (MIT), reimplemented here because the
+   page ships as one file with no bundler. */
+const Haptics = (function(){
+  const canVibrate = typeof navigator.vibrate === 'function';
+  let sw = null, swLabel = null;
+
+  function ensureSwitch(){
+    if (swLabel) return;
+    const host = document.createElement('div');
+    host.setAttribute('aria-hidden','true');
+    host.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    sw = document.createElement('input');
+    sw.type = 'checkbox'; sw.setAttribute('switch',''); sw.id = 'hapticSwitch'; sw.tabIndex = -1;
+    swLabel = document.createElement('label');
+    swLabel.setAttribute('for','hapticSwitch');
+    host.appendChild(sw); host.appendChild(swLabel);
+    document.body.appendChild(host);
+  }
+
+  // duty-cycle an on-slice so weaker pulses feel weaker on Android
+  function shape(ms, intensity){
+    const SLICE = 12;
+    if (intensity >= 1) return [ms];
+    const on = Math.max(1, Math.round(SLICE*intensity)), off = SLICE - on;
+    const out = []; let left = ms;
+    while (left >= SLICE){ out.push(on, off); left -= SLICE; }
+    if (left > 0) out.push(Math.max(1, Math.round(left*intensity)));
+    return out;
+  }
+
+  return {
+    mode: canVibrate ? 'vibrate' : 'switch',
+    // steps: [{duration, delay, intensity}]
+    fire(steps){
+      if (canVibrate){
+        const pat = [];
+        for (const st of steps){
+          if (st.delay) pat.push(0, st.delay);
+          pat.push(...shape(st.duration, st.intensity == null ? 1 : st.intensity));
+        }
+        navigator.vibrate(pat);
+        return 'vibrate';
+      }
+      ensureSwitch();
+      if (!swLabel) return 'none';
+      let t = 0;
+      for (const st of steps){
+        t += st.delay || 0;
+        setTimeout(() => swLabel.click(), t);
+        t += st.duration;
+      }
+      return 'switch';
+    }
+  };
+})();
+
+// a rising burst, to land with the knot leaving the nozzle
+const JET_HAPTIC = [
+  { duration: 14, intensity: 0.45 },
+  { delay: 34, duration: 22, intensity: 0.75 },
+  { delay: 26, duration: 70, intensity: 1.0 },
+];
+
+const hpBtn = document.getElementById('hp'), hpOut = document.getElementById('hpV');
+hpOut.textContent = 'off';
+hpBtn.addEventListener('click', () => {
+  S.haptics = !S.haptics;
+  hpBtn.setAttribute('aria-pressed', String(S.haptics));
+  hpBtn.textContent = S.haptics ? 'On' : 'Off';
+  hpOut.textContent = S.haptics ? Haptics.mode : 'off';
+  if (S.haptics) Haptics.fire([{ duration: 12, intensity: 0.6 }]);  // confirm on the gesture
+});
 
 const sndBtn = document.getElementById('snd'), sndOut = document.getElementById('sndV');
 sndBtn.addEventListener('click', () => {

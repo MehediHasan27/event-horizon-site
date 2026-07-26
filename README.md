@@ -68,6 +68,37 @@ choice sticks once you've made it.
 
 `Score` plays an original ambient piece, off by default.
 
+## Jets
+
+Bipolar jets are accumulated volumetrically along the same rays that carry the
+disk, which means their base is lensed by the same curved space as everything
+else rather than being composited on top. A narrow cone opens with height, wound
+with helical filaments, and a bright knot is launched along the axis **every ten
+seconds** and travels outward.
+
+Lighting them extends the volume well past the disk, so the ray exit test has to
+reach further while they are on. With `Jets` at 0 it snaps back to the tight
+bound and most sky pixels retire on their first step again.
+
+The framing was pulled back to suit them: the jets run to 24 Schwarzschild radii
+and at the previous scale their tips fell off the screen.
+
+## Haptics
+
+There is no single web haptics API, so there are two routes, adapted from
+[web-haptics](https://github.com/lochie/web-haptics) by Lochie (MIT) and
+reimplemented inline because this page ships as one file with no bundler.
+
+On Android, `navigator.vibrate` — with each pulse chopped into on/off slices so
+a duty cycle stands in for the intensity the API does not expose. On iOS there
+is no vibration API at all, but toggling a `switch` checkbox taps the Taptic
+Engine, so a hidden one is clicked instead; that needs iOS 17.4 or later, where
+Safari added the attribute. Desktop browsers have no haptic hardware and will
+stay silent either way.
+
+It is **opt-in**, off by default, and verified never to fire before you turn it
+on. The jet burst is a three-step rising pattern timed to the launch.
+
 ## Relativistic beaming
 
 A disk orbiting this close is moving at a large fraction of `c`, so the side
